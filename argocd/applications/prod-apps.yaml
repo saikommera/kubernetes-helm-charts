@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: prod-microservices
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - service: payment-api
+            namespace: production
+            replicas: "3"
+          - service: user-api
+            namespace: production
+            replicas: "2"
+          - service: notification-service
+            namespace: production
+            replicas: "2"
+  template:
+    metadata:
+      name: "{{service}}-prod"
+      annotations:
+        notifications.argoproj.io/subscribe.on-sync-failed.slack: deployments
+        notifications.argoproj.io/subscribe.on-health-degraded.pagerduty: oncall
+    spec:
+      project: production
+      source:
+        repoURL: https://github.com/saikommera/kubernetes-helm-charts
+        targetRevision: HEAD
+        path: charts/microservice
+        helm:
+          valueFiles:
+            - values.yaml
+          parameters:
+            - name: replicaCount
+              value: "{{replicas}}"
+            - name: environment
+              value: production
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{namespace}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 3
+          backoff:
+            duration: 30s
+            factor: 2
