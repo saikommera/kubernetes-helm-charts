@@ -1,0 +1,63 @@
+name: Helm CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Helm Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "3.14.0"
+
+      - name: Lint all charts
+        run: |
+          for chart in charts/*/; do
+            echo "── Linting $chart"
+            helm lint "$chart" --strict
+          done
+
+      - name: Template render check
+        run: |
+          for chart in charts/*/; do
+            echo "── Rendering $chart"
+            helm template release-test "$chart"               --set image.repository=test               --set image.tag=latest               > /dev/null && echo "OK"
+          done
+
+  kubeconform:
+    name: K8s Manifest Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "3.14.0"
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz             | tar xz -C /usr/local/bin
+
+      - name: Validate rendered manifests
+        run: |
+          helm template release-test charts/microservice             --set image.repository=test --set image.tag=latest             | kubeconform -strict -summary -kubernetes-version 1.29.0
+
+  security:
+    name: Checkov Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkov Helm scan
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: charts/
+          framework: helm
+          soft_fail: true
